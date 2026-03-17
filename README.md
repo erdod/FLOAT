@@ -1,4 +1,4 @@
-# [Nome del Vostro Progetto]
+# OASIS (Off-grid Agricultural System for Intelligent Safeguard)
 
 ## Team Members
 * Edoardo Zompanti, 1985499 - www.linkedin.com/in/edoardo-zompanti-a8678a3b4
