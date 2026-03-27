@@ -1,4 +1,5 @@
-# OASIS (Off-grid Agricultural System for Intelligent Safeguard)
+# FLOAT (Federated Learning for Observation of Aquatic Tanks)
+
 
 ## Team Members
 * Edoardo Zompanti, 1985499 - www.linkedin.com/in/edoardo-zompanti-a8678a3b4
