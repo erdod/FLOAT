@@ -1,4 +1,4 @@
-# FLOAT (Federated Learning for Observation of Aquatic Tanks)
+# FLOAT (Framework for Local Observation of Aquatic Tanks)
 
 
 ## Team Members
