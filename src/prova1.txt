@@ -1,0 +1,87 @@
+#include <Arduino.h>
+#include <Wire.h>
+#include <Adafruit_INA219.h>
+
+// --- PIN ARCHITETTURA HELTEC V3 ---
+#define SDA_PIN 41
+#define SCL_PIN 42
+#define PUMP_PIN 2
+
+Adafruit_INA219 ina219;
+
+// --- PARAMETRI DI SISTEMA ---
+const float F_MAX = 0.1;
+const float F_S = 2.0 * F_MAX;
+const int TS_MS = (1.0 / F_S) * 1000;   // Ciclo ogni 5 secondi
+const int BOOT_OVERHEAD_MS = 200;
+const float TURBIDITY_THRESHOLD = 70.0; // Soglia per attivare la pompa
+
+RTC_DATA_ATTR float time_counter = 0;
+
+// Funzione matematica per simulare l'acqua che si sporca
+float getSimulatedTurbidity() {
+  float base_val = 50.0 + (sin(time_counter) * 40.0);
+  float noise = random(-5, 5);
+  return base_val + noise;
+}
+
+void setup() {
+  Serial.begin(115200);
+  delay(2000); 
+
+  unsigned long start_active_time = millis();
+
+  // 1. INIZIALIZZO ATTUATORI
+  pinMode(PUMP_PIN, OUTPUT);
+  digitalWrite(PUMP_PIN, LOW); // Pompa spenta alla partenza
+
+  // 2. INIZIALIZZO SENSORI (I2C)
+  Wire.begin(SDA_PIN, SCL_PIN);
+  if (!ina219.begin()) {
+    Serial.println(">Errore:INA219_Non_Trovato (Controlla i cavi!)");
+    Serial.flush();
+    while (1) { delay(10); }
+  }
+
+  // 3. LETTURA DATI
+  float current_turbidity = getSimulatedTurbidity();
+  float current_mA = ina219.getCurrent_mA(); // Consumo base a riposo
+
+  // 4. LOGICA SMART AQUARIUM
+  if (current_turbidity > TURBIDITY_THRESHOLD) {
+    // L'acqua è sporca! Attivazione ciclo di pulizia
+    digitalWrite(PUMP_PIN, HIGH);
+
+    // Aspettiamo 500ms per vincere l'inerzia del motore
+    delay(500);
+
+    // Leggiamo la corrente ORA, nel momento di massimo sforzo della pompa!
+    current_mA = ina219.getCurrent_mA();
+
+    // Lasciamo circolare l'acqua per 1 secondo per la Demo visiva
+    delay(1000);
+
+    // Spegnimento pompa
+    digitalWrite(PUMP_PIN, LOW);
+  }
+
+  time_counter += (1.0 / F_S);
+
+  // --- CALCOLO ENERGY MANAGEMENT ---
+  unsigned long active_duration = millis() - start_active_time;
+  int sleep_time_ms = TS_MS - active_duration - BOOT_OVERHEAD_MS;
+
+  // Stampa dati formattata per Teleplot
+  Serial.printf(">Torbidita:%.2f\n>Consumo_mA:%.2f\n>SleepTime_ms:%d\n", current_turbidity, current_mA, sleep_time_ms);
+  Serial.flush();
+  delay(50);
+
+  // --- DEEP SLEEP ---
+  if (sleep_time_ms > 0) {
+    esp_deep_sleep(sleep_time_ms * 1000ULL);
+  } else {
+    delay(TS_MS - active_duration);
+  }
+}
+
+void loop() {}

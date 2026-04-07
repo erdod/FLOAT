@@ -1,0 +1,116 @@
+#include <Arduino.h>
+#include <Wire.h>
+#include <Adafruit_INA219.h>
+
+// --- CONFIGURAZIONE PIN HELTEC V3 ---
+const int PUMP_PIN = 47;    // Transistor Pompa
+const int SERVO_PIN = 6;    // Filo Bianco Servo (In attesa di hardware)
+const int I2C_SDA = 5;      // INA219 SDA
+const int I2C_SCL = 4;      // INA219 SCL
+
+Adafruit_INA219 ina219;
+
+// ================================================================
+// FUNZIONE MANUALE PER IL SERVO (Attualmente disattivata in attesa del pezzo)
+// ================================================================
+void muoviServo(int gradi) {
+  int microsecondi_alto = map(gradi, 0, 180, 500, 2400);
+  for(int i = 0; i < 50; i++) {
+    digitalWrite(SERVO_PIN, HIGH);
+    delayMicroseconds(microsecondi_alto);
+    digitalWrite(SERVO_PIN, LOW);
+    delayMicroseconds(20000 - microsecondi_alto);
+  }
+}
+// ================================================================
+
+void setup() {
+  Serial.begin(115200);
+  delay(3000); 
+
+  Serial.println("\n=============================================");
+  Serial.println("   AVVIO ACQUARIO: CHECK-UP DI SICUREZZA");
+  Serial.println("=============================================\n");
+
+  // --- CHECK 1: SERVOMOTORE ---
+  Serial.print("[Check 1] Test Servomotore... ");
+  pinMode(SERVO_PIN, OUTPUT);
+  digitalWrite(SERVO_PIN, LOW);
+  // muoviServo(0); // [COMMENTATO] In attesa del servo fisico
+  Serial.println("SUPERATO (Bypass Software, hardware non presente)");
+
+  // --- CHECK 2: POMPA E RELE'/TRANSISTOR ---
+  Serial.print("[Check 2] Configurazione pin Pompa... ");
+  pinMode(PUMP_PIN, OUTPUT);
+  digitalWrite(PUMP_PIN, LOW); // Assicuriamoci che sia spenta
+  Serial.println("SUPERATO! (Pompa disattivata per sicurezza)");
+
+  // --- CHECK 3: SENSORE INA219 (Il Contatore) ---
+  Serial.print("[Check 3] Connessione al sensore INA219... ");
+  Wire.begin(I2C_SDA, I2C_SCL);
+  Wire.setTimeOut(50);   
+  Wire.setClock(10000);  
+
+  if (!ina219.begin()) {
+    Serial.println("FALLITO! X");
+    Serial.println("\n[!] ALLARME CRITICO [!]");
+    Serial.println("L'ESP32 non riesce a comunicare con l'INA219.");
+    Serial.println("Controlla i cavi SDA e SCL e l'alimentazione 3.3V.");
+    Serial.println("-> SISTEMA BLOCCATO PER EVITARE DANNI ALLA POMPA <-");
+    while (1) { delay(100); } // Blocco totale
+  } 
+  else {
+    Serial.println("SUPERATO! V");
+    ina219.setCalibration_16V_400mA();
+    
+    // Test di Lettura Reale: controlliamo se legge la tensione sui cavi della pompa
+    float tensione_bus = ina219.getBusVoltage_V();
+    Serial.print("          -> Diagnostica INA219: Tensione rilevata sulla linea: ");
+    Serial.print(tensione_bus);
+    Serial.println(" V");
+  }
+  
+  randomSeed(analogRead(0));
+  Serial.println("\n=== TUTTI I SISTEMI OPERATIVI. AVVIO CICLO ===\n");
+}
+
+void loop() {
+  Serial.println("------------------------------------------------");
+  
+  int torbidita = random(0, 101); 
+  Serial.print("[NUOVO CICLO] Torbidita' rilevata: ");
+  Serial.print(torbidita);
+  Serial.println("%");
+
+  if (torbidita >= 50) {
+    Serial.println(">>> ACQUA SPORCA! Attivazione filtraggio <<<");
+    digitalWrite(PUMP_PIN, HIGH); 
+    
+    for(int i = 0; i < 20; i++) {
+      float current_mA = ina219.getCurrent_mA();
+      Serial.print("Filtraggio... Consumo Pompa: ");
+      Serial.print(current_mA);
+      Serial.println(" mA");
+      delay(500); 
+    }
+    digitalWrite(PUMP_PIN, LOW);
+    Serial.println(">>> Ciclo filtraggio terminato.");
+  } 
+  else {
+    Serial.println(">>> ACQUA PULITA! Ora di dare da mangiare. <<<");
+    
+    // [LOGICA SERVO COMMENTATA]
+    Serial.println("[Step 1] Apertura mangiatoia (90 gradi)... (SIMULATO)");
+    // muoviServo(90); 
+    delay(1000); 
+
+    Serial.println("[Step 2] Chiusura mangiatoia (0 gradi)... (SIMULATO)");
+    // muoviServo(0); 
+    
+    Serial.println("[Step 3] Cibo erogato con successo. Motore a riposo.");
+    digitalWrite(SERVO_PIN, LOW); 
+  }
+  
+  Serial.println("\nAttesa di 5 secondi...\n");
+  delay(5000); 
+}

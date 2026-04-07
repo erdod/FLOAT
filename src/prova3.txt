@@ -1,0 +1,135 @@
+#include <Arduino.h>
+#include <Wire.h>
+#include <Adafruit_INA219.h>
+
+// --- PIN CORRETTI PER LA TUA HELTEC V3 ---
+#define SDA_PIN 4
+#define SCL_PIN 5
+#define PUMP_PIN 2  // Pin che comanda il transistor della pompa
+
+Adafruit_INA219 ina219;
+
+// --- PARAMETRI ---
+const float F_MAX = 0.1;
+const float F_S = 2.0 * F_MAX;
+const int TS_MS = (1.0 / F_S) * 1000;   // Campionamento ogni 5000 ms
+
+const int BOOT_OVERHEAD_MS = 200;
+const float TURBIDITY_THRESHOLD = 70.0; // Oltre 70 = acqua sporca, accendi la pompa
+
+RTC_DATA_ATTR float time_counter = 0;
+
+// Funzione che crea una "finta" torbidità che sale e scende
+float getSimulatedTurbidity() {
+  float base_val = 50.0 + (sin(time_counter) * 40.0);
+  float noise = random(-5, 5);
+  return base_val + noise;
+}
+
+void setup() {
+  Serial.begin(115200);
+  delay(2000); // Tempo vitale per far agganciare la USB al PC
+
+  unsigned long start_active_time = millis();
+
+  // 1. INIZIALIZZO IL PIN DELLA POMPA
+  pinMode(PUMP_PIN, OUTPUT);
+  digitalWrite(PUMP_PIN, LOW); // Assicuriamoci che parta spenta
+
+  Wire.begin(SDA_PIN, SCL_PIN);
+
+  if (!ina219.begin()) {
+    Serial.println(">Errore:INA219_Non_Trovato");
+    Serial.flush();
+    while (1) { delay(10); }
+  }
+
+  // 2. LETTURA DATI
+  float current_turbidity = getSimulatedTurbidity();
+  float current_mA = ina219.getCurrent_mA(); // Corrente a riposo (bassa)
+
+  // 3. LOGICA DELL'ACQUARIO
+  if (current_turbidity > TURBIDITY_THRESHOLD) {
+    // Acqua sporca! Accendiamo la pompa
+    digitalWrite(PUMP_PIN, HIGH);
+
+    // Aspettiamo mezzo secondo per farla avviare a pieno regime
+    delay(500);
+
+    // Misuriamo il picco di corrente mentre la pompa sta girando!
+    current_mA = ina219.getCurrent_mA();
+
+    // La lasciamo girare ancora 1 secondo per farla vedere bene nella demo
+    delay(1000);
+
+    // Spegniamo la pompa
+    digitalWrite(PUMP_PIN, LOW);
+  }
+
+  time_counter += (1.0 / F_S);
+
+  // --- CALCOLO ENERGY MANAGEMENT ---
+  unsigned long active_duration = millis() - start_active_time;
+  int sleep_time_ms = TS_MS - active_duration - BOOT_OVERHEAD_MS;
+
+  // Invio dei dati al grafico Teleplot
+  Serial.printf(">Torbidita:%.2f\n>Consumo_mA:%.2f\n>SleepTime_Calcolato:%d\n", current_turbidity, current_mA, sleep_time_ms);
+
+  Serial.flush();
+  delay(50);
+
+  // --- VERO DEEP SLEEP ---
+  if (sleep_time_ms > 0) {
+    esp_deep_sleep(sleep_time_ms * 1000ULL);
+  } else {
+    delay(TS_MS - active_duration);
+  }
+}
+
+void loop() {}
+
+
+
+
+
+
+
+#include <Arduino.h>
+#include <Wire.h>
+
+// I veri pin I2C della Heltec V3
+#define SDA_PIN 41
+#define SCL_PIN 42
+
+void setup() {
+  Serial.begin(115200);
+  delay(2000);
+  Serial.println("\n--- TEST ISOLATO INA219 ---");
+
+  // Inizializza la comunicazione con i pin corretti
+  Wire.begin(SDA_PIN, SCL_PIN);
+}
+
+void loop() {
+  byte error, address;
+  int nDevices = 0;
+
+  Serial.println("Cerco il sensore INA219...");
+
+  for(address = 1; address < 127; address++ ) {
+    Wire.beginTransmission(address);
+    error = Wire.endTransmission();
+
+    if (error == 0) {
+      Serial.printf(">>> TROVATO! Il sensore e' vivo all'indirizzo 0x%02X <<<\n", address);
+      nDevices++;
+    }
+  }
+  
+  if (nDevices == 0) {
+    Serial.println("Nessun segnale.");
+  } 
+  
+  Serial.println("-----------------------------------");
+  delay(3000); 
+}

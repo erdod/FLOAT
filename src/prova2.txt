@@ -1,0 +1,112 @@
+#include <Arduino.h>
+#include <Wire.h>
+#include <Adafruit_INA219.h>
+
+#define SDA_PIN 41
+#define SCL_PIN 42
+#define PUMP_PIN 2
+
+Adafruit_INA219 ina219;
+
+// --- PARAMETRI DI SISTEMA ---
+const float F_MAX = 0.1;
+const float F_S = 2.0 * F_MAX;
+const int TS_MS = (1.0 / F_S) * 1000;
+const int BOOT_OVERHEAD_MS = 200;
+const float TURBIDITY_THRESHOLD = 70.0; 
+
+// --- PARAMETRI DI SICUREZZA POMPA ---
+const float STALL_THRESHOLD = 250.0;   // mA oltre i quali il motore è bloccato (Dito o sasso)
+const float DRY_RUN_THRESHOLD = 60.0;  // mA sotto i quali il motore gira a vuoto (Tubo tappato o no acqua)
+const int PUMP_DURATION_MS = 1500;     // Quanto deve durare il ciclo di pulizia
+const int INRUSH_DELAY_MS = 300;       // Millisecondi ignorati all'avvio per superare il picco iniziale
+
+// --- MEMORIA PERSISTENTE ---
+RTC_DATA_ATTR float time_counter = 0;
+RTC_DATA_ATTR bool pump_locked = false; // Se true, la pompa è in blocco di sicurezza
+
+float getSimulatedTurbidity() {
+  float base_val = 50.0 + (sin(time_counter) * 40.0);
+  float noise = random(-5, 5);
+  return base_val + noise;
+}
+
+void setup() {
+  Serial.begin(115200);
+  delay(2000); 
+
+  unsigned long start_active_time = millis();
+
+  pinMode(PUMP_PIN, OUTPUT);
+  digitalWrite(PUMP_PIN, LOW); 
+
+  Wire.begin(SDA_PIN, SCL_PIN);
+  if (!ina219.begin()) {
+    Serial.println(">Errore:INA219_Non_Trovato");
+    Serial.flush();
+    while (1) { delay(10); }
+  }
+
+  float current_turbidity = getSimulatedTurbidity();
+  float current_mA = ina219.getCurrent_mA(); 
+  String status_msg = "OK";
+
+  // --- LOGICA SMART CON SAFETY CUT-OFF ---
+  if (current_turbidity > TURBIDITY_THRESHOLD) {
+    if (pump_locked) {
+      status_msg = "ERRORE: POMPA_IN_BLOCCO (Premi RST per sbloccare)";
+    } else {
+      digitalWrite(PUMP_PIN, HIGH);
+      unsigned long pump_start = millis();
+      bool fault_detected = false;
+
+      // 1. Aspettiamo che passi il picco di accensione (Inrush Current)
+      delay(INRUSH_DELAY_MS);
+
+      // 2. Ciclo di Telemetria Attiva (Monitoraggio in tempo reale)
+      while (millis() - pump_start < PUMP_DURATION_MS) {
+        current_mA = ina219.getCurrent_mA();
+
+        if (current_mA > STALL_THRESHOLD) {
+          fault_detected = true;
+          status_msg = "ALLARME_STALLO_MOTORE";
+          break; // Esce immediatamente dal ciclo
+        } 
+        else if (current_mA < DRY_RUN_THRESHOLD) {
+          fault_detected = true;
+          status_msg = "ALLARME_POMPA_A_VUOTO";
+          break; // Esce immediatamente dal ciclo
+        }
+        
+        delay(50); // Legge il sensore ogni 50ms
+      }
+
+      // Spegnimento pompa (sia per fine ciclo che per emergenza)
+      digitalWrite(PUMP_PIN, LOW);
+
+      // Se c'è stato un guasto, blocca il sistema per i cicli futuri
+      if (fault_detected) {
+        pump_locked = true;
+      }
+    }
+  }
+
+  time_counter += (1.0 / F_S);
+
+  unsigned long active_duration = millis() - start_active_time;
+  int sleep_time_ms = TS_MS - active_duration - BOOT_OVERHEAD_MS;
+
+  // Stampa dati su Teleplot. Aggiunta linea di Status
+  Serial.printf(">Torbidita:%.2f\n>Consumo_mA:%.2f\n>Stato:%s\n", current_turbidity, current_mA, status_msg.c_str());
+  Serial.flush();
+  delay(50);
+
+  // --- DEEP SLEEP ---
+  if (sleep_time_ms > 0) {
+    esp_deep_sleep(sleep_time_ms * 1000ULL);
+  } else {
+    delay(TS_MS - active_duration);
+  }
+}
+
+void loop() {}
