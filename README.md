@@ -180,9 +180,7 @@ The duty cycle significantly reduces the average power consumption.
 
 # Demo Video
 
-Project demonstration video:
-
-(YOUTUBE LINK HERE)
+Project demonstration video: https://www.youtube.com/watch?v=Wky8BkITGp4
 
 The video shows:
 
