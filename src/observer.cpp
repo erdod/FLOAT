@@ -10,8 +10,8 @@
 #include <math.h>
 #include "dashboard.h"
 // WiFi 
-const char* WIFI_SSID = "Pixel_3478";
-const char* WIFI_PASS = "sounciocco";
+const char* WIFI_SSID = "...";
+const char* WIFI_PASS = "...";
 // MQTT 
 #define MQTT_ENABLED    1
 #define MQTT_TLS         1    // 1 = TLS ; 0 = plaintext
